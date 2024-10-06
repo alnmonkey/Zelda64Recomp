@@ -6,15 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 # set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-everything -Wall -Wextra")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-everything /W4")
+endif()
+
+# Opt out of constexpr mutex constructor on windows to prevent vcredist issues
+if (WIN32)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
+endif()
 
 # Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
 if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
     cmake_policy(SET CMP0135 NEW)
-endif()
-
-if(UNIX AND NOT APPLE)
-    set(LINUX TRUE)
 endif()
 
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -33,7 +36,10 @@ SET(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/lunasvg)
 # set(BUILD_SHARED_LIBS "${BUILD_SHARED_LIBS_SAVED}")
 SET(ENABLE_SVG_PLUGIN ON CACHE BOOL "" FORCE)
+SET(RMLUI_TESTS_ENABLED OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/RmlUi)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
 
 target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/rt64/src)
 
@@ -43,11 +49,14 @@ add_library(RecompiledFuncs STATIC)
 target_compile_options(RecompiledFuncs PRIVATE
     # -Wno-unused-but-set-variable
     -fno-strict-aliasing
+    -Wno-unused-variable
     -Wno-implicit-function-declaration
 )
 
 target_include_directories(RecompiledFuncs PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include
+    ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/librecomp/include
 )
 
 file(GLOB FUNC_C_SOURCES ${CMAKE_SOURCE_DIR}/RecompiledFuncs/*.c)
@@ -61,10 +70,14 @@ add_library(PatchesLib STATIC)
 target_compile_options(PatchesLib PRIVATE
     # -Wno-unused-but-set-variable
     -fno-strict-aliasing
+    -Wno-unused-variable
+    -Wno-implicit-function-declaration
 )
 
 target_include_directories(PatchesLib PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include
+    ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/librecomp/include
 )
 
 target_sources(PatchesLib PRIVATE
@@ -75,10 +88,22 @@ target_sources(PatchesLib PRIVATE
 set_source_files_properties(${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c PROPERTIES COMPILE_FLAGS -fno-strict-aliasing)
 
 # Build patches elf
+if(NOT DEFINED PATCHES_C_COMPILER)
+    set(PATCHES_C_COMPILER clang)
+endif()
+
+if(NOT DEFINED PATCHES_LD)
+    set(PATCHES_LD ld.lld)
+endif()
+
+if(NOT DEFINED PATCHES_OBJCOPY)
+    set(PATCHES_OBJCOPY llvm-objcopy)
+endif()
+
 add_custom_target(PatchesBin
-    COMMAND make
+    COMMAND ${CMAKE_COMMAND} -E env CC=${PATCHES_C_COMPILER} LD=${PATCHES_LD} OBJCOPY=${PATCHES_OBJCOPY} make
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/patches
-    BYPRODUCTS ${CMAKE_SOURCE_DIR}/patches/patches.bin
+    BYPRODUCTS ${CMAKE_SOURCE_DIR}/patches/patches.elf
 )
 
 # Generate patches_bin.c from patches.bin
@@ -87,60 +112,48 @@ add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c
     DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin
 )
 
-# Generate mm_shader_cache.c from the MM shader cache
-add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.h
-    COMMAND file_to_c ${CMAKE_SOURCE_DIR}/shadercache/mm_shader_cache.bin mm_shader_cache_bytes ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/shadercache/mm_shader_cache.bin
-)
-
-# Recompile patches elf into patches.c
+# Recompile patches elf into patches.c and patches.bin
 add_custom_command(OUTPUT
+                       ${CMAKE_SOURCE_DIR}/patches/patches.bin
                        ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c
                        ${CMAKE_SOURCE_DIR}/RecompiledPatches/recomp_overlays.inl
                        ${CMAKE_SOURCE_DIR}/RecompiledPatches/funcs.h
-                       ${CMAKE_SOURCE_DIR}/src/recomp/patch_loading.cpp
-                   COMMAND ./N64Recomp patches.toml && ${CMAKE_COMMAND} -E touch ${CMAKE_SOURCE_DIR}/src/recomp/patch_loading.cpp
+                   # TODO: Look into why modifying patches requires two builds to take
+                   COMMAND ./N64Recomp patches.toml
                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                   DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin
+                   DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.elf
 )
+
+# Download controller db file for controller support via SDL2
+set(GAMECONTROLLERDB_COMMIT "b1e4090b3d4266e55feb0793efa35792e05faf66")
+set(GAMECONTROLLERDB_URL "https://raw.githubusercontent.com/gabomdq/SDL_GameControllerDB/${GAMECONTROLLERDB_COMMIT}/gamecontrollerdb.txt")
+
+file(DOWNLOAD ${GAMECONTROLLERDB_URL} ${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt
+     TLS_VERIFY ON)
+
+add_custom_target(DownloadGameControllerDB
+    DEPENDS ${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt)
 
 # Main executable
 add_executable(Zelda64Recompiled)
+add_dependencies(Zelda64Recompiled DownloadGameControllerDB)
+
+# Generate mm_shader_cache.c from the MM shader cache if it exists
+if (EXISTS ${CMAKE_SOURCE_DIR}/shadercache/mm_shader_cache.bin)
+    set(HAS_MM_SHADER_CACHE TRUE)
+    target_compile_definitions(Zelda64Recompiled PRIVATE HAS_MM_SHADER_CACHE)
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.h
+        COMMAND file_to_c ${CMAKE_SOURCE_DIR}/shadercache/mm_shader_cache.bin mm_shader_cache_bytes ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.h
+        DEPENDS ${CMAKE_SOURCE_DIR}/shadercache/mm_shader_cache.bin
+    )
+endif()
 
 set (SOURCES
-    ${CMAKE_SOURCE_DIR}/ultramodern/audio.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/events.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/mesgqueue.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/misc_ultra.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/port_main.c
-    ${CMAKE_SOURCE_DIR}/ultramodern/scheduling.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/threadqueue.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/task_win32.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/threads.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/timer.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/ultrainit.cpp
-    ${CMAKE_SOURCE_DIR}/ultramodern/rt64_layer.cpp
-
-    ${CMAKE_SOURCE_DIR}/src/recomp/ai.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/cont.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/dp.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/eep.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/euc-jp.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/flash.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/math_routines.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/overlays.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/patch_loading.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/pak.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/pi.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/ultra_stubs.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/ultra_translation.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/print.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/recomp.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/sp.cpp
-    ${CMAKE_SOURCE_DIR}/src/recomp/vi.cpp
-
     ${CMAKE_SOURCE_DIR}/src/main/main.cpp
-    
+    ${CMAKE_SOURCE_DIR}/src/main/register_overlays.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/register_patches.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/rt64_render_context.cpp
+
     ${CMAKE_SOURCE_DIR}/src/game/input.cpp
     ${CMAKE_SOURCE_DIR}/src/game/controls.cpp
     ${CMAKE_SOURCE_DIR}/src/game/config.cpp
@@ -159,9 +172,11 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/rsp/njpgdspMain.cpp
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
-
-    ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c
 )
+
+if (HAS_MM_SHADER_CACHE)
+    list(APPEND SOURCES ${CMAKE_CURRENT_BINARY_DIR}/mm_shader_cache.c)
+endif()
 
 target_include_directories(Zelda64Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -175,25 +190,39 @@ target_include_directories(Zelda64Recompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/lib/rt64/src
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/rhi
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/render
+    ${CMAKE_SOURCE_DIR}/lib/sse2neon
     ${CMAKE_SOURCE_DIR}/lib/freetype-windows-binaries/include
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/nativefiledialog-extended/src/include
     ${CMAKE_BINARY_DIR}/shaders
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-target_compile_options(Zelda64Recompiled PRIVATE
-    -march=nehalem
-    -fno-strict-aliasing
-    -fms-extensions
-)
+if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+    target_compile_options(Zelda64Recompiled PRIVATE
+        -march=nehalem
+        -fno-strict-aliasing
+        -fms-extensions
+    )
+else()
+    target_compile_options(Zelda64Recompiled PRIVATE
+        -fno-strict-aliasing
+        -fms-extensions
+    )
+endif()
 
 if (WIN32)
     include(FetchContent)
+
+    if (DEFINED ENV{SDL2_VERSION})
+        set(SDL2_VERSION $ENV{SDL2_VERSION})
+    else()
+        set(SDL2_VERSION "2.30.3")
+    endif()
+
     # Fetch SDL2 on windows
     FetchContent_Declare(
         sdl2
-        URL https://github.com/libsdl-org/SDL/releases/download/release-2.28.5/SDL2-devel-2.28.5-VC.zip
-        URL_HASH MD5=d8173db078e54040c666f411c5a6afff
+        URL https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-devel-${SDL2_VERSION}-VC.zip
     )
     FetchContent_MakeAvailable(sdl2)
     target_include_directories(Zelda64Recompiled PRIVATE
@@ -210,7 +239,7 @@ if (WIN32)
             "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxil.dll"
             "${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxcompiler.dll"
             $<TARGET_FILE_DIR:Zelda64Recompiled>)
-            
+
     set_target_properties(
         Zelda64Recompiled
         PROPERTIES
@@ -223,10 +252,10 @@ if (WIN32)
     target_sources(Zelda64Recompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
 endif()
 
-if (LINUX)
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(SDL2 REQUIRED)
     find_package(X11 REQUIRED)
-    
+
     # Generate icon_bytes.c from the app icon PNG.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.h
         COMMAND file_to_c ${CMAKE_SOURCE_DIR}/icons/512.png icon_bytes ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.h 
@@ -259,7 +288,7 @@ if (LINUX)
     set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)
-    
+
     target_link_libraries(Zelda64Recompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
@@ -267,6 +296,8 @@ target_link_libraries(Zelda64Recompiled PRIVATE
     PatchesLib
     RecompiledFuncs
     SDL2
+    librecomp
+    ultramodern
     rt64
     RmlCore
     RmlDebugger
@@ -289,11 +320,20 @@ if (${WIN32})
     set (DXC "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc.exe")
     add_compile_definitions(NOMINMAX)
 else()
-    set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc")
+    if (APPLE)
+        # Apple's binary is universal, so it'll work on both x86_64 and arm64
+        set (DXC "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-macos")
+    else()
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+            set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc")
+        else()
+            set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-linux")
+        endif()
+    endif()
 endif()
 
 build_vertex_shader(Zelda64Recompiled "shaders/InterfaceVS.hlsl" "shaders/InterfaceVS.hlsl")
-build_pixel_shader (Zelda64Recompiled "shaders/InterfacePS.hlsl" "shaders/InterfacePS.hlsl")
+build_pixel_shader(Zelda64Recompiled "shaders/InterfacePS.hlsl" "shaders/InterfacePS.hlsl")
 
 target_sources(Zelda64Recompiled PRIVATE ${SOURCES})
 

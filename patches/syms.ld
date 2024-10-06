@@ -1,20 +1,5 @@
 __start = 0x80000000;
 
-/* Manual symbol overrides to work around recompiler ambiguity issue (TODO fix this) */
-_ovl_daytelopSegmentOvlEnd = 0x0;
-_ovl_kaleido_scopeSegmentTextStart = 0x0;
-_ovl_kaleido_scopeSegmentStart = 0x0;
-_ovl_daytelopSegmentBssStart = 0x0;
-_ovl_daytelopSegmentEnd = 0x0;
-_ovl_daytelopSegmentBssEnd = 0x0;
-
-/* Static symbols that aren't in the elf */
-sSceneEntranceTable = 0x801C5720;
-D_808DE5B0 = 0x808DE5B0;
-sHappyMaskSalesmanAnimationInfo = 0x80AD22C0;
-D_808890F0 = 0x808890F0;
-D_8088911C = 0x8088911C;
-
 /* Dummy addresses that get recompiled into function calls */
 recomp_puts = 0x8F000000;
 recomp_exit = 0x8F000004;
@@ -52,3 +37,10 @@ osGetTime_recomp = 0x8F000088;
 recomp_autosave_enabled = 0x8F00008C;
 recomp_load_overlays = 0x8F000090;
 osInvalICache_recomp = 0x8F000094;
+recomp_analog_cam_enabled = 0x8F000098;
+recomp_get_camera_inputs = 0x8F00009C;
+recomp_set_right_analog_suppressed = 0x8F0000A0;
+recomp_get_inverted_axes = 0x8F0000A4;
+recomp_high_precision_fb_enabled = 0x8F0000A8;
+recomp_get_resolution_scale = 0x8F0000AC;
+recomp_get_analog_inverted_axes = 0x8F0000B0;

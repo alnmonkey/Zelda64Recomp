@@ -5,6 +5,20 @@ Zelda 64: Recompiled is a project that uses [N64: Recompiled](https://github.com
 
 ### **This repository and its releases do not contain game assets. The original game is required to build or run this project.**
 
+<div align="left" valign="middle">
+<a href="https://runblaze.dev">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://www.runblaze.dev/logo_dark.png">
+   <img align="right" src="https://www.runblaze.dev/logo_light.png" height="102px"/>
+ </picture>
+</a>
+
+<br style="display: none;"/>
+
+_Thank you [Blaze](https://runblaze.dev) for supporting this project by providing Linux ARM64 and Apple Silicon macOS Github Action Runners!_
+
+</div>
+
 ## Table of Contents
 * [System Requirements](#system-requirements)
 * [Features](#features)
@@ -13,7 +27,9 @@ Zelda 64: Recompiled is a project that uses [N64: Recompiled](https://github.com
   * [Easy-to-Use Menus](#easy-to-use-menus)
   * [High Framerate Support](#high-framerate-support)
   * [Widescreen and Ultrawide Support](#widescreen-and-ultrawide-support)
+  * [Dual Analog Camera](#dual-analog-camera)
   * [Gyro Aim](#gyro-aim)
+  * [Additional Control Options](#additional-control-options)
   * [Autosaving](#autosaving)
   * [Low Input Lag](#low-input-lag)
   * [Instant Load Times](#instant-load-times)
@@ -55,10 +71,16 @@ Any aspect ratio is supported, with most effects modded to work correctly in wid
 
 **Note**: Some animation quirks can be seen at the edges of the screen in certain cutscenes when using very wide aspect ratios.
 
+#### Dual Analog Camera
+Play with a dual analog control layout like later entries in the series! When this option is enabled, the right stick will control the camera. You can still have the C-Buttons mapped to the right stick if you so wish, so long as you also map them to other buttons on the controller. The right stick C-button inputs will be "silenced", except when you take out the ocarina, so you can still play the ocarina with the right stick.
+
 #### Gyro Aim
 When playing with a supported controller, first-person items such as the bow can be aimed with your controller's gyro sensor. This includes (but is not limited to) controllers such as the Dualshock 4, Dualsense, Switch Pro, and most third party Switch controllers (such as the 8BitDo Pro 2 in Switch mode).
 
 **Note**: Gamepad mappers such as BetterJoy or DS4Windows may intercept gyro data and prevent the game from receiving it. Most controllers are natively supported, so turning gamepad mappers off is recommended if you want to use gyro.
+
+#### Additional Control Options
+Customize your experience by setting your stick deadzone to your liking, as well as adjusting the X and Y axis inversion for both aiming and the optional dual analog camera.
 
 #### Autosaving
 Never worry about losing progress if your power goes out thanks to autosaving! The autosave system is designed to respect Majora's Mask's original save system and maintain the intention of owl saves by triggering automatically and replacing the previous autosave or owl save. However, if you'd still rather play with the untouched save system, simply turn off autosaving in the ingame menu.
@@ -72,16 +94,15 @@ Saving and loading files, going from place to place, and pausing all happen in t
 #### Linux and Steam Deck Support
 A Linux binary is available for playing on most up-to-date distros, including on the Steam Deck.
 
-To play on Steam Deck, extract the Linux build onto your deck. Then, in desktop mode, right click the Zelda64Recompiled executable file and select "Add to Steam" as shown. From there, you can return to Gaming mode and configure the controls as needed. See the [Steam Deck gyro aim FAQ section](#how-do-i-set-up-gyro-aiming-on-steam-deck) for more detailed instructions.
+To play on Steam Deck, extract the Linux build onto your deck. Then, in desktop mode, right click the Zelda64Recompiled executable file and select "Add to Steam". From there, you can return to Gaming mode and configure the controls as needed. See the [Steam Deck gyro aim FAQ section](#how-do-i-set-up-gyro-aiming-on-steam-deck) for more detailed instructions.
 
 ## Planned Features
-* Dual analog control scheme (with analog camera)
-* Configurable deadzone and analog stick sensitivity
 * Ocarina of Time support
 * Mod support and Randomizer
 * Texture Packs
 * Model Replacements
 * Ray Tracing (via RT64)
+* Multi-language support with support for loading custom translations
 
 ## FAQ
 
@@ -108,7 +129,6 @@ You'll probably also want to change the default behavior so that you don't need 
 If you want to play a modded ROM or in another language, note that support for modding and other languages will be added to the project itself in the future and will not rely on you supplying a different ROM. 
 
 ## Known Issues
-* The motion blur effect used by the game was capped to prevent ghosting at incredibly high framerates, which causes it to be less noticeable (this is only really noticeable above 120FPS). This may be fixed in the future by offering the option to render to an HDR framebuffer internally, which would allow it to be uncapped.
 * Intel GPUs on Linux may not currently work. If you have experience with Vulkan development on Linux, help here would be greatly appreciated!
 * The prebuilt Linux binary may not work correctly on some distributions of Linux. If you encounter such an issue, building the project locally yourself is recommended. A Flatpak or AppImage may be provided in the future to solve this issue. Adding the Linux version to Steam and setting "Steam Linux Runtime" as the compatibility tool or launching it via Gamescope may work around the issue. Alternatively, running the Windows version with Proton is known to work well and may also work around this issue.
 * Overlays such as MSI Afterburner and other software such as Wallpaper Engine can cause performance issues with this project that prevent the game from rendering correctly. Disabling such software is recommended.
